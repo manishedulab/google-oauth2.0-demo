@@ -28,8 +28,8 @@ passport.use(
   new GoogleStrategy(
     {
       clientID:
-        "581667473293-rs803e6inh5uqec9qrcobp9d8asoaojo.apps.googleusercontent.com",
-      clientSecret: "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",
+        "client id",
+      clientSecret: "client secret",
       callbackURL: "http://localhost:3000/auth/google/callback",
       accessType: "offline",
       passReqToCallback: true,
