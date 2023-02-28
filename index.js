@@ -1,14 +1,18 @@
 const express = require("express");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const { OAuth2Client } = require("google-auth-library");
 const ejs = require("ejs");
 const jwt = require("jsonwebtoken");
 const session = require('express-session');
 const RedisStore = require('connect-redis')(session);
 const redis = require('ioredis')
+require('dotenv').config()
+const app = express();
+
 
 const client = redis.createClient({
-  host: 'localhost',
+  host: process.env.HOST,
   port: 6379,
   legacyMode: true,
 });
@@ -19,7 +23,9 @@ client.on('error', (err) => {
   console.error('Error connecting to Redis:', err);
 });
 
-const app = express();
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET=process.env.CLIENT_SECRET
+const gclient = new OAuth2Client(CLIENT_ID,CLIENT_SECRET);
 
 app.set("view engine", "ejs");
 
@@ -27,9 +33,8 @@ app.set("view engine", "ejs");
 passport.use(
   new GoogleStrategy(
     {
-      clientID:
-        "581667473293-rs803e6inh5uqec9qrcobp9d8asoaojo.apps.googleusercontent.com",
-      clientSecret: "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",
+      clientID:CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
       callbackURL: "http://localhost:3000/auth/google/callback",
       accessType: "offline",
       passReqToCallback: true,
@@ -37,23 +42,24 @@ passport.use(
       scope: ["openid","profile", "email" ],
     },
     function (req,accessToken, refreshToken,id_token,profile, cb) {
-      console.log('refreshToken', refreshToken)
-      console.log("access token", accessToken);
-      console.log("profile", profile);
-      console.log("id_token", id_token);
+      // console.log('refreshToken', refreshToken)
+      // console.log("access token", accessToken);
+      // console.log("profile", profile);
+      // console.log("id_token", id_token);
       // profile.id_token = accessToken;
       
-      return cb(null, profile);
+      return cb(null, profile,id_token);
     }
   )
 );
-
 passport.serializeUser(function (user, cb) {
   cb(null, user);
 });
 passport.deserializeUser(function (obj, cb) {
   cb(null, obj);
 });
+
+
 
 app.use(require("cookie-parser")());
 app.use(express.json());
@@ -70,8 +76,9 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
+
 const ensureAuthenticated = function (req, res, next) {
-  if (req.isAuthenticated()) {
+  if (req.session.userId) {
     return next();
   }
   res.redirect("/login");
@@ -86,11 +93,10 @@ app.get("/login", function (req, res) {
 });
 
 app.get("/good", ensureAuthenticated, function (req, res) {
-  res.send("<a href='/home'> Back to Home</a>");
+  res.send("welcome to the good <br/><a href='/home'> Back to Home</a>");
 });
 
-app.get(
-  "/auth/google",
+app.get("/auth/google",
   passport.authenticate("google", {
     scope: ["openid","profile", "email"],
     accessType: "offline",
@@ -98,11 +104,16 @@ app.get(
   })
 );
 
-app.get(
-  "/auth/google/callback",
+app.get("/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
-  function (req, res) {
-  // console.log("google user authenticated=====>",req.user)
+  async function (req, res) {
+    const idToken = req.authInfo.id_token;
+    // console.log("authInfo=====> " ,req.res)
+    const payload = await verifyIdToken(idToken);
+    if (!payload) {
+      return res.redirect("/login");
+    }
+    req.session.userId = payload.sub;
     res.redirect("/home");
   }
 );
@@ -116,6 +127,20 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.listen(3000, () =>
+const verifyIdToken = async (token) => {
+  try {
+    const ticket = await gclient.verifyIdToken({
+      idToken: token,
+      audience: CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    return payload;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+};
+
+app.listen(process.env.PORT, () =>
   console.log("listening on port http://localhost:3000/home,")
 );
